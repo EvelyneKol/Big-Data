@@ -6,17 +6,14 @@ import pandas as pd
 
 # Kafka broker configuration
 bootstrap_servers = 'localhost:9092'
-topic_name = 'Test2'
+topic_name = 'vehicle_positions'
 
 # Load vehicle data from CSV file
 df_vehicles = pd.read_csv('vehicles.csv')
 
-# Initialize Kafka producer with increased buffer settings
+# Initialize Kafka producer
 producer = Producer({
-    'bootstrap.servers': bootstrap_servers,
-    'queue.buffering.max.messages': 100000,
-    'queue.buffering.max.kbytes': 10240,  # Increase max buffer size in KB
-    'batch.num.messages': 10000
+    'bootstrap.servers': bootstrap_servers
 })
 
 # Function to handle delivery report from Kafka producer
@@ -29,22 +26,16 @@ def delivery_report(err, msg):
 # Get the start time of the simulation
 simulation_start_time = datetime.now()
 
-# Function to add timestamp to vehicle data
-def add_timestamp(vehicle, current_time):
-    vehicle['timestamp'] = current_time.strftime('%Y-%m-%d %H:%M:%S')
-    return vehicle
-
-# Function to convert row to JSON object with necessary fields
 def row_to_json(row, current_time):
     return {
         "name": str(row['name']),
-        "origin": row['orig'],
-        "destination": row['dest'],
+        "origin": str(row['orig']),
+        "destination": str(row['dest']),
         "time": current_time.strftime('%d/%m/%Y %H:%M:%S'),
-        "link": row['link'],
-        "position": row['x'],
-        "spacing": row['s'],
-        "speed": row['v']
+        "link": str(row['link']),
+        "position": float(row['x']),
+        "spacing": float(row['s']),
+        "speed": float(row['v'])
     }
 
 # Run the simulation
@@ -57,27 +48,31 @@ for n in range(0, 3600, N):
     current_data = df_vehicles[df_vehicles['t'] == n]
     
     for _, row in current_data.iterrows():
-        # Convert row to JSON with timestamp
-        vehicle_with_timestamp = row_to_json(row, current_time)
-        
-        # Send JSON data to Kafka topic
-        while True:
-            try:
-                producer.produce(topic_name, value=json.dumps(vehicle_with_timestamp).encode('utf-8'), callback=delivery_report)
-                break  # Exit loop if successful
-            except BufferError:
-                # If buffer is full, wait and try again
-                producer.poll(1)  # Wait for 1 second
-                continue
-        
-        # Poll for delivery reports
-        producer.poll(0)
+        # Check if the vehicle is not waiting at the origin node
+        if row['link'] != 'waiting_at_origin_node'and row['link'] != 'trip_end':
+            # Convert row to JSON with timestamp
+            vehicle_with_timestamp = row_to_json(row, current_time)
+            
+            print(f"Sending JSON data: {json.dumps(vehicle_with_timestamp, indent=2)}")
+            
+            # Serialize to JSON and encode to bytes
+            serialized_value = json.dumps(vehicle_with_timestamp).encode('utf-8')
+            
+            # Send JSON data to Kafka topic
+            while True:
+                try:
+                    producer.produce(topic_name, value=serialized_value, callback=delivery_report)
+                    break  # Exit loop if successful
+                except BufferError:
+                    # If buffer is full, wait and try again
+                    producer.poll(1)  # Wait for 1 second
+                    continue
+            
+            # Poll for delivery reports
+            producer.poll(0)
     
     # Optional: Add delay to allow buffer to clear
     time.sleep(0.1)
 
 # Flush any remaining messages
 producer.flush()
-
-# Close the Kafka producer
-producer.close()
