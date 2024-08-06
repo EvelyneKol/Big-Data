@@ -3,7 +3,7 @@ import json
 
 # Kafka broker configuration
 bootstrap_servers = 'localhost:9092'
-topic_name = 'Test1'
+topic_name = 'vehicle_positions'
 
 # Initialize Kafka consumer
 consumer = Consumer({
